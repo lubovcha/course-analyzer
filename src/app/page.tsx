@@ -3,44 +3,24 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 
 interface CourseData {
   courseName: string;
   basicInfo: string;
   startDate: string;
-  utp: string;
-  targetAudience: string;
   duration: string;
   pricePerMonth: string;
   totalPrice: string;
-  tariffs: string;
-  tariffContent: string;
   platform: string;
   installment: boolean;
-  license: string;
-  completionDocument: string;
-  training: string;
   program: string;
   hasAI: boolean;
-  howClassesWork: string;
-  homeworkChecker: string;
   teachers: string;
-  teacherCommunication: string;
-  bonuses: string;
-  partner: string;
-  advertising: string;
-  contextualAds: string;
-  promotions: string;
-  additionalProducts: string;
-  entryPoint: string;
   strengths: string[];
   weaknesses: string[];
-  firstImpression: string;
 }
 
 interface Comparison {
@@ -53,134 +33,174 @@ interface Comparison {
 }
 
 interface AnalysisResult {
-  url: string;
-  success: boolean;
-  error?: string;
-  data?: CourseData;
-  comparison?: Comparison;
+  productLab: CourseData | null;
+  competitor: CourseData | null;
+  comparison: Comparison | null;
 }
 
+const STEPS = [
+  { id: 'productlab', label: 'Анализ ProductLab', icon: '🔍' },
+  { id: 'competitor', label: 'Анализ конкурента', icon: '📊' },
+  { id: 'compare', label: 'Сравнение', icon: '⚡' },
+]
+
 export default function CourseAnalyzerPage() {
-  const [mode, setMode] = useState<'url' | 'text'>('url')
-  const [urls, setUrls] = useState('')
-  const [rawContent, setRawContent] = useState('')
-  const [contentName, setContentName] = useState('')
+  const [productLabUrl, setProductLabUrl] = useState('')
+  const [competitorUrl, setCompetitorUrl] = useState('')
   const [loading, setLoading] = useState(false)
-  const [results, setResults] = useState<AnalysisResult[]>([])
-  const [activeTab, setActiveTab] = useState('0')
+  const [currentStep, setCurrentStep] = useState(-1)
+  const [result, setResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState('')
+  const [exporting, setExporting] = useState<'pdf' | 'pptx' | null>(null)
 
-  const parseUrls = (input: string): string[] => {
-    // Split by newlines, tabs, and multiple spaces
-    const parts = input.split(/[\n\t]+/)
-    
-    // Extract URLs from each part
-    const urlList: string[] = []
-    const urlRegex = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi
-    
-    for (const part of parts) {
-      const trimmed = part.trim()
-      if (trimmed.startsWith('http')) {
-        // Direct URL
-        urlList.push(trimmed)
+  const isValidUrl = (url: string): boolean => {
+    try {
+      new URL(url)
+      return url.startsWith('http')
+    } catch {
+      return false
+    }
+  }
+
+  const analyzeCourses = async () => {
+    if (!productLabUrl.trim() || !competitorUrl.trim()) {
+      setError('Введите оба URL-адреса')
+      return
+    }
+
+    if (!isValidUrl(productLabUrl)) {
+      setError('Некорректный URL ProductLab')
+      return
+    }
+
+    if (!isValidUrl(competitorUrl)) {
+      setError('Некорректный URL конкурента')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setResult(null)
+    setCurrentStep(0)
+
+    try {
+      // Step 1: Analyze ProductLab
+      setCurrentStep(0)
+      const step1Res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: 1, productLabUrl: productLabUrl.trim() })
+      })
+      const step1Data = await step1Res.json()
+      if (!step1Data.success) throw new Error(step1Data.error || 'Ошибка анализа ProductLab')
+
+      // Step 2: Analyze Competitor
+      setCurrentStep(1)
+      const step2Res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: 2, competitorUrl: competitorUrl.trim() })
+      })
+      const step2Data = await step2Res.json()
+      if (!step2Data.success) throw new Error(step2Data.error || 'Ошибка анализа конкурента')
+
+      // Step 3: Compare
+      setCurrentStep(2)
+      const step3Res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          step: 3, 
+          productLabData: step1Data.productLab,
+          competitorUrl: competitorUrl.trim()
+        })
+      })
+      const step3Data = await step3Res.json()
+      if (!step3Data.success) throw new Error(step3Data.error || 'Ошибка сравнения')
+
+      setResult({
+        productLab: step1Data.productLab,
+        competitor: step3Data.competitor,
+        comparison: step3Data.comparison
+      })
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка соединения')
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const exportToPDF = async () => {
+    if (!result) return
+    setExporting('pdf')
+    try {
+      const response = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          format: 'pdf', 
+          results: [{
+            url: competitorUrl,
+            success: true,
+            data: result.competitor,
+            comparison: result.comparison
+          }]
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        window.open(`/api/download?file=${encodeURIComponent(data.filename)}`, '_blank')
       } else {
-        // Try to extract URLs from the text
-        const matches = trimmed.match(urlRegex)
-        if (matches) {
-          urlList.push(...matches.map(m => m.trim()))
-        }
+        setError(data.error || 'Ошибка генерации PDF')
       }
-    }
-    
-    // Remove duplicates and validate
-    return [...new Set(urlList)].filter(url => {
-      try {
-        new URL(url)
-        return true
-      } catch {
-        return false
-      }
-    })
-  }
-
-  const analyzeUrls = async () => {
-    if (mode === 'url') {
-      const urlList = parseUrls(urls)
-      
-      if (urlList.length === 0) {
-        setError('Введите хотя бы один корректный URL (начинается с http:// или https://)')
-        return
-      }
-
-      setLoading(true)
-      setError('')
-      setResults([])
-
-      try {
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ urls: urlList })
-        })
-
-        const data = await response.json()
-
-        if (data.success) {
-          setResults(data.results)
-          setActiveTab('0')
-        } else {
-          setError(data.error || 'Ошибка анализа')
-        }
-      } catch (err) {
-        setError('Ошибка соединения с сервером')
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    } else {
-      // Text mode
-      if (!rawContent.trim()) {
-        setError('Вставьте текст страницы курса')
-        return
-      }
-
-      setLoading(true)
-      setError('')
-      setResults([])
-
-      try {
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rawContent, urls: [contentName || 'Курс'] })
-        })
-
-        const data = await response.json()
-
-        if (data.success) {
-          setResults(data.results.map((r: AnalysisResult) => ({
-            ...r,
-            url: contentName || r.url
-          })))
-          setActiveTab('0')
-        } else {
-          setError(data.error || 'Ошибка анализа')
-        }
-      } catch (err) {
-        setError('Ошибка соединения с сервером')
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
+    } catch (err) {
+      setError('Ошибка экспорта PDF')
+      console.error(err)
+    } finally {
+      setExporting(null)
     }
   }
 
-  const exportResults = () => {
-    const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' })
+  const exportToPPTX = async () => {
+    if (!result) return
+    setExporting('pptx')
+    try {
+      const response = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          format: 'pptx', 
+          results: [{
+            url: competitorUrl,
+            success: true,
+            data: result.competitor,
+            comparison: result.comparison
+          }]
+        })
+      })
+      const data = await response.json()
+      if (data.success) {
+        window.open(`/api/download?file=${encodeURIComponent(data.filename)}`, '_blank')
+      } else {
+        setError(data.error || 'Ошибка генерации PPTX')
+      }
+    } catch (err) {
+      setError('Ошибка экспорта PPTX')
+      console.error(err)
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const exportJSON = () => {
+    if (!result) return
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `course-analysis-${new Date().toISOString().split('T')[0]}.json`
+    a.download = `course-comparison-${new Date().toISOString().split('T')[0]}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -203,13 +223,21 @@ export default function CourseAnalyzerPage() {
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                   AI Анализатор курсов
                 </h1>
-                <p className="text-sm text-slate-500">Автоматический анализ и сравнение с Product Lab</p>
+                <p className="text-sm text-slate-500">Сравнение курсов с ProductLab</p>
               </div>
             </div>
-            {results.length > 0 && (
-              <Button onClick={exportResults} variant="outline" className="border-indigo-200 text-indigo-600">
-                Экспорт JSON
-              </Button>
+            {result && (
+              <div className="flex gap-2">
+                <Button onClick={exportToPDF} disabled={exporting !== null} variant="outline" className="border-red-200 text-red-600 hover:bg-red-50">
+                  {exporting === 'pdf' ? '...' : 'PDF'}
+                </Button>
+                <Button onClick={exportToPPTX} disabled={exporting !== null} variant="outline" className="border-orange-200 text-orange-600 hover:bg-orange-50">
+                  {exporting === 'pptx' ? '...' : 'PPTX'}
+                </Button>
+                <Button onClick={exportJSON} variant="outline" className="border-indigo-200 text-indigo-600">
+                  JSON
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -219,93 +247,84 @@ export default function CourseAnalyzerPage() {
         {/* Input Section */}
         <Card className="mb-8 border-0 shadow-xl shadow-indigo-500/5 bg-white/80 backdrop-blur-sm">
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Введите данные для анализа</CardTitle>
-                <CardDescription>
-                  Вставьте URL-адреса или текст страницы курса для автоматического анализа
-                </CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <Button 
-                  variant={mode === 'url' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setMode('url')}
-                  className={mode === 'url' ? 'bg-indigo-600' : ''}
-                >
-                  По URL
-                </Button>
-                <Button 
-                  variant={mode === 'text' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setMode('text')}
-                  className={mode === 'text' ? 'bg-indigo-600' : ''}
-                >
-                  По тексту
-                </Button>
-              </div>
-            </div>
+            <CardTitle>Сравнение курсов</CardTitle>
+            <CardDescription>
+              Вставьте ссылку на курс ProductLab (эталон) и ссылку на курс конкурента
+            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {mode === 'url' ? (
-              <>
-                <Textarea
-                  placeholder="Вставьте URL курсов (можно в любом формате):&#10;&#10;https://course1.com&#10;https://course2.com&#10;&#10;или через табы/пробелы:&#10;https://course1.com       https://course2.com     https://course3.com"
-                  value={urls}
-                  onChange={(e) => setUrls(e.target.value)}
-                  rows={5}
-                  className="border-slate-200 focus:border-indigo-400 focus:ring-indigo-400/20"
-                />
-                {urls.trim() && (
-                  <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
-                    <p className="text-xs font-medium text-indigo-700 mb-2">
-                      Найдено URL: {parseUrls(urls).length}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {parseUrls(urls).slice(0, 10).map((url, i) => (
-                        <span key={i} className="text-xs bg-white px-2 py-1 rounded border border-indigo-200 text-indigo-600 truncate max-w-[200px]">
-                          {url.replace('https://', '').replace('http://', '').split('/')[0]}
-                        </span>
-                      ))}
-                      {parseUrls(urls).length > 10 && (
-                        <span className="text-xs text-slate-500">+ ещё {parseUrls(urls).length - 10}</span>
-                      )}
+          <CardContent className="space-y-6">
+            {/* ProductLab URL */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <span className="w-3 h-3 rounded-full bg-indigo-500"></span>
+                Курс ProductLab (эталон)
+              </label>
+              <Input
+                placeholder="https://productlab.ru/product_manager"
+                value={productLabUrl}
+                onChange={(e) => setProductLabUrl(e.target.value)}
+                className="border-indigo-200 focus:border-indigo-400 focus:ring-indigo-400/20"
+              />
+            </div>
+
+            {/* Competitor URL */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <span className="w-3 h-3 rounded-full bg-purple-500"></span>
+                Курс конкурента
+              </label>
+              <Input
+                placeholder="https://competitor.ru/course/product-manager"
+                value={competitorUrl}
+                onChange={(e) => setCompetitorUrl(e.target.value)}
+                className="border-purple-200 focus:border-purple-400 focus:ring-purple-400/20"
+              />
+            </div>
+
+            {/* Progress */}
+            {loading && (
+              <div className="p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
+                <div className="flex items-center justify-between mb-3">
+                  {STEPS.map((step, i) => (
+                    <div key={step.id} className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-all ${
+                        i < currentStep ? 'bg-green-500 text-white' :
+                        i === currentStep ? 'bg-indigo-500 text-white animate-pulse' :
+                        'bg-slate-200 text-slate-500'
+                      }`}>
+                        {i < currentStep ? '✓' : step.icon}
+                      </div>
+                      <span className={`text-sm hidden sm:inline ${
+                        i <= currentStep ? 'text-indigo-700 font-medium' : 'text-slate-400'
+                      }`}>
+                        {step.label}
+                      </span>
                     </div>
-                  </div>
-                )}
-                <p className="text-xs text-slate-400">
-                  💡 Вставьте URL-адреса курсов в любом формате (через перенос строки, табы или пробелы). 
-                  Если страница не читается, используйте режим &quot;По тексту&quot;.
+                  ))}
+                </div>
+                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 transition-all duration-500"
+                    style={{ width: `${((currentStep + 1) / STEPS.length) * 100}%` }}
+                  />
+                </div>
+                <p className="text-sm text-indigo-600 mt-2 text-center">
+                  {currentStep === 0 && '🔍 Анализирую страницу ProductLab...'}
+                  {currentStep === 1 && '📊 Анализирую страницу конкурента...'}
+                  {currentStep === 2 && '⚡ Сравниваю курсы...'}
                 </p>
-              </>
-            ) : (
-              <>
-                <Input
-                  placeholder="Название курса (для отображения)"
-                  value={contentName}
-                  onChange={(e) => setContentName(e.target.value)}
-                  className="border-slate-200 focus:border-indigo-400 focus:ring-indigo-400/20"
-                />
-                <Textarea
-                  placeholder="Вставьте сюда текст со страницы курса (Ctrl+A, Ctrl+C на странице курса, затем Ctrl+V сюда)..."
-                  value={rawContent}
-                  onChange={(e) => setRawContent(e.target.value)}
-                  rows={10}
-                  className="border-slate-200 focus:border-indigo-400 focus:ring-indigo-400/20"
-                />
-                <p className="text-xs text-slate-400">
-                  💡 Откройте страницу курса, нажмите Ctrl+A (выделить всё), Ctrl+C (копировать), 
-                  затем вставьте сюда Ctrl+V. AI проанализирует текст и извлечёт данные.
-                </p>
-              </>
+              </div>
             )}
-            
+
             {error && (
-              <p className="text-red-500 text-sm">{error}</p>
+              <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                <p className="text-red-600 text-sm">{error}</p>
+              </div>
             )}
+
             <Button 
-              onClick={analyzeUrls} 
-              disabled={loading}
+              onClick={analyzeCourses} 
+              disabled={loading || !productLabUrl.trim() || !competitorUrl.trim()}
               className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 shadow-lg shadow-indigo-500/25"
             >
               {loading ? (
@@ -317,234 +336,192 @@ export default function CourseAnalyzerPage() {
                   Анализирую...
                 </span>
               ) : (
-                'Запустить AI-анализ'
+                'Запустить сравнение'
               )}
             </Button>
           </CardContent>
         </Card>
 
         {/* Results Section */}
-        {results.length > 0 && (
+        {result && (
           <div className="space-y-6">
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid grid-cols-2 lg:grid-cols-4 gap-2 bg-white/60 backdrop-blur-sm p-2 rounded-2xl border border-indigo-100/50">
-                {results.map((result, index) => (
-                  <TabsTrigger 
-                    key={index} 
-                    value={index.toString()}
-                    className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-indigo-500 data-[state=active]:to-purple-600 data-[state=active]:text-white rounded-xl"
-                  >
-                    {result.success ? (result.data?.courseName?.substring(0, 20) || `Курс ${index + 1}`) : `Ошибка ${index + 1}`}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-
-              {results.map((result, index) => (
-                <TabsContent key={index} value={index.toString()} className="space-y-6 mt-6">
-                  {!result.success ? (
-                    <Card className="border-red-200 bg-red-50/50">
-                      <CardContent className="pt-6">
-                        <p className="text-red-600 font-medium">❌ Ошибка анализа</p>
-                        <p className="text-sm text-slate-600 mt-2">{result.error}</p>
-                        <div className="mt-4 p-4 bg-amber-50 rounded-lg border border-amber-200">
-                          <p className="text-sm font-medium text-amber-800">💡 Рекомендация:</p>
-                          <p className="text-sm text-amber-700 mt-1">
-                            Попробуйте переключиться в режим &quot;По тексту&quot; и вставить содержимое страницы вручную:
-                          </p>
-                          <ol className="text-sm text-amber-700 mt-2 list-decimal list-inside space-y-1">
-                            <li>Откройте страницу курса в браузере</li>
-                            <li>Нажмите Ctrl+A (выделить всё)</li>
-                            <li>Нажмите Ctrl+C (копировать)</li>
-                            <li>Вернитесь сюда и нажмите Ctrl+V</li>
-                          </ol>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <>
-                      {/* Quick Stats */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-indigo-100/50 shadow-lg shadow-indigo-500/5">
-                          <div className="text-sm text-slate-500 mb-1">Цена</div>
-                          <div className="text-xl font-bold text-indigo-600">{result.data?.totalPrice || '—'}</div>
-                          <div className="text-xs text-slate-400">{result.data?.pricePerMonth && `${result.data.pricePerMonth}/мес`}</div>
-                        </div>
-                        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-purple-100/50 shadow-lg shadow-purple-500/5">
-                          <div className="text-sm text-slate-500 mb-1">Длительность</div>
-                          <div className="text-xl font-bold text-purple-600">{result.data?.duration || '—'}</div>
-                        </div>
-                        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-teal-100/50 shadow-lg shadow-teal-500/5">
-                          <div className="text-sm text-slate-500 mb-1">AI</div>
-                          <div className="text-xl font-bold text-teal-600">{result.data?.hasAI ? 'Да' : 'Нет'}</div>
-                        </div>
-                        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-amber-100/50 shadow-lg shadow-amber-500/5">
-                          <div className="text-sm text-slate-500 mb-1">Рассрочка</div>
-                          <div className="text-xl font-bold text-amber-600">{result.data?.installment ? 'Да' : 'Нет'}</div>
-                        </div>
-                      </div>
-
-                      {/* Main Analysis */}
-                      <div className="grid lg:grid-cols-2 gap-6">
-                        {/* Course Data */}
-                        <Card className="border-0 shadow-xl shadow-indigo-500/5 bg-white/80 backdrop-blur-sm">
-                          <CardHeader>
-                            <CardTitle>{result.data?.courseName}</CardTitle>
-                            <CardDescription>{result.data?.basicInfo}</CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            <div className="space-y-3">
-                              <Field label="УТП" value={result.data?.utp} />
-                              <Field label="Целевая аудитория" value={result.data?.targetAudience} />
-                              <Field label="Дата старта" value={result.data?.startDate} />
-                              <Field label="Тарифы" value={result.data?.tariffs} />
-                              <Field label="Содержание тарифов" value={result.data?.tariffContent} />
-                              <Field label="Платформа" value={result.data?.platform} />
-                              <Field label="Лицензия" value={result.data?.license} />
-                              <Field label="Документ об окончании" value={result.data?.completionDocument} />
-                              <Field label="Формат обучения" value={result.data?.training} />
-                              <Field label="Программа" value={result.data?.program} />
-                              <Field label="Как проходят занятия" value={result.data?.howClassesWork} />
-                              <Field label="Проверка ДЗ" value={result.data?.homeworkChecker} />
-                              <Field label="Преподаватели" value={result.data?.teachers} />
-                              <Field label="Коммуникация" value={result.data?.teacherCommunication} />
-                              <Field label="Бонусы" value={result.data?.bonuses} />
-                              <Field label="Партнёрка" value={result.data?.partner} />
-                              <Field label="Акции" value={result.data?.promotions} />
-                              <Field label="Лид-магниты" value={result.data?.additionalProducts} />
-                              <Field label="Точка входа" value={result.data?.entryPoint} />
-                              <Field label="Первое впечатление" value={result.data?.firstImpression} />
-                            </div>
-
-                            {/* Strengths & Weaknesses */}
-                            <div className="grid grid-cols-2 gap-4 pt-4">
-                              <div>
-                                <h4 className="font-medium text-green-600 mb-2">✅ Сильные стороны</h4>
-                                <ul className="text-sm space-y-1">
-                                  {result.data?.strengths?.map((s, i) => (
-                                    <li key={i} className="flex items-start gap-2">
-                                      <span className="text-green-500">•</span>
-                                      {s}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                              <div>
-                                <h4 className="font-medium text-red-600 mb-2">❌ Слабые стороны</h4>
-                                <ul className="text-sm space-y-1">
-                                  {result.data?.weaknesses?.map((w, i) => (
-                                    <li key={i} className="flex items-start gap-2">
-                                      <span className="text-red-500">•</span>
-                                      {w}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        {/* Comparison with Product Lab */}
-                        <Card className="border-0 shadow-xl shadow-purple-500/5 bg-gradient-to-br from-indigo-50/50 to-purple-50/50">
-                          <CardHeader>
-                            <div className="flex items-center gap-2">
-                              <Badge className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
-                                VS Product Lab
-                              </Badge>
-                            </div>
-                            <CardTitle>Сравнение с Product Lab</CardTitle>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            <Field label="💰 Сравнение цен" value={result.comparison?.priceComparison} />
-                            <Field label="⏱️ Сравнение длительности" value={result.comparison?.durationComparison} />
-                            <Field label="🖥️ Сравнение платформ" value={result.comparison?.platformComparison} />
-                            
-                            <Separator />
-                            
-                            <div>
-                              <h4 className="font-medium text-green-600 mb-2">🚀 Преимущества перед Product Lab</h4>
-                              <ul className="text-sm space-y-1">
-                                {result.comparison?.strengthsVsProductLab?.map((s, i) => (
-                                  <li key={i} className="flex items-start gap-2">
-                                    <span className="text-green-500">+</span>
-                                    {s}
-                                  </li>
-                                ))}
-                                {(!result.comparison?.strengthsVsProductLab || result.comparison.strengthsVsProductLab.length === 0) && (
-                                  <li className="text-slate-400">Не выявлено</li>
-                                )}
-                              </ul>
-                            </div>
-
-                            <div>
-                              <h4 className="font-medium text-amber-600 mb-2">⚠️ Отставание от Product Lab</h4>
-                              <ul className="text-sm space-y-1">
-                                {result.comparison?.weaknessesVsProductLab?.map((w, i) => (
-                                  <li key={i} className="flex items-start gap-2">
-                                    <span className="text-amber-500">−</span>
-                                    {w}
-                                  </li>
-                                ))}
-                                {(!result.comparison?.weaknessesVsProductLab || result.comparison.weaknessesVsProductLab.length === 0) && (
-                                  <li className="text-slate-400">Не выявлено</li>
-                                )}
-                              </ul>
-                            </div>
-
-                            <Separator />
-
-                            <div className="bg-white/50 rounded-xl p-4">
-                              <h4 className="font-medium mb-2">📋 Общий вывод</h4>
-                              <p className="text-sm text-slate-600">{result.comparison?.overallVerdict}</p>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </div>
-                    </>
-                  )}
-                </TabsContent>
-              ))}
-            </Tabs>
-          </div>
-        )}
-
-        {/* Product Lab Reference */}
-        {results.length > 0 && (
-          <Card className="mt-8 border-0 shadow-xl shadow-indigo-500/5 bg-white/80 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Badge className="bg-indigo-100 text-indigo-700">Референс</Badge>
-                Product Lab
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid md:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="text-slate-500">Цена:</span>
-                  <span className="ml-2 font-medium">от 60 000 ₽ (от 15 000 ₽/мес)</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Длительность:</span>
-                  <span className="ml-2 font-medium">4 месяца</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Платформа:</span>
-                  <span className="ml-2 font-medium">Собственная</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">AI:</span>
-                  <span className="ml-2 font-medium text-green-600">Да</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Рассрочка:</span>
-                  <span className="ml-2 font-medium text-green-600">Да</span>
-                </div>
-                <div>
-                  <span className="text-slate-500">Лицензия:</span>
-                  <span className="ml-2 font-medium">Да</span>
-                </div>
+            {/* Quick Stats Comparison */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-indigo-100/50 shadow-lg">
+                <div className="text-xs text-slate-500 mb-1">Цена</div>
+                <div className="text-lg font-bold text-indigo-600">{result.productLab?.totalPrice || '—'}</div>
+                <div className="text-xs text-slate-400">ProductLab</div>
               </div>
-            </CardContent>
-          </Card>
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-purple-100/50 shadow-lg">
+                <div className="text-xs text-slate-500 mb-1">Цена</div>
+                <div className="text-lg font-bold text-purple-600">{result.competitor?.totalPrice || '—'}</div>
+                <div className="text-xs text-slate-400">Конкурент</div>
+              </div>
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-teal-100/50 shadow-lg">
+                <div className="text-xs text-slate-500 mb-1">Длительность</div>
+                <div className="text-lg font-bold text-teal-600">{result.productLab?.duration || '—'}</div>
+                <div className="text-xs text-slate-400">ProductLab</div>
+              </div>
+              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-amber-100/50 shadow-lg">
+                <div className="text-xs text-slate-500 mb-1">Длительность</div>
+                <div className="text-lg font-bold text-amber-600">{result.competitor?.duration || '—'}</div>
+                <div className="text-xs text-slate-400">Конкурент</div>
+              </div>
+            </div>
+
+            {/* Detailed Comparison */}
+            <div className="grid lg:grid-cols-2 gap-6">
+              {/* ProductLab */}
+              <Card className="border-0 shadow-xl shadow-indigo-500/5 bg-white/80 backdrop-blur-sm">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-indigo-100 text-indigo-700">Эталон</Badge>
+                  </div>
+                  <CardTitle className="text-indigo-700">{result.productLab?.courseName || 'ProductLab'}</CardTitle>
+                  <CardDescription>{result.productLab?.basicInfo}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Field label="Цена" value={result.productLab?.totalPrice} />
+                  <Field label="В месяц" value={result.productLab?.pricePerMonth} />
+                  <Field label="Длительность" value={result.productLab?.duration} />
+                  <Field label="Старт" value={result.productLab?.startDate} />
+                  <Field label="Платформа" value={result.productLab?.platform} />
+                  <Field label="AI-ассистент" value={result.productLab?.hasAI ? 'Да' : 'Нет'} />
+                  <Field label="Рассрочка" value={result.productLab?.installment ? 'Да' : 'Нет'} />
+                  <Field label="Программа" value={result.productLab?.program} />
+                  <Field label="Преподаватели" value={result.productLab?.teachers} />
+                  
+                  {result.productLab?.strengths && result.productLab.strengths.length > 0 && (
+                    <div className="pt-3">
+                      <h4 className="font-medium text-green-600 mb-2 text-sm">Сильные стороны</h4>
+                      <ul className="text-sm space-y-1">
+                        {result.productLab.strengths.map((s, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-green-500">+</span>
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Competitor */}
+              <Card className="border-0 shadow-xl shadow-purple-500/5 bg-white/80 backdrop-blur-sm">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-purple-100 text-purple-700">Конкурент</Badge>
+                  </div>
+                  <CardTitle className="text-purple-700">{result.competitor?.courseName || 'Курс конкурента'}</CardTitle>
+                  <CardDescription>{result.competitor?.basicInfo}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Field label="Цена" value={result.competitor?.totalPrice} />
+                  <Field label="В месяц" value={result.competitor?.pricePerMonth} />
+                  <Field label="Длительность" value={result.competitor?.duration} />
+                  <Field label="Старт" value={result.competitor?.startDate} />
+                  <Field label="Платформа" value={result.competitor?.platform} />
+                  <Field label="AI-ассистент" value={result.competitor?.hasAI ? 'Да' : 'Нет'} />
+                  <Field label="Рассрочка" value={result.competitor?.installment ? 'Да' : 'Нет'} />
+                  <Field label="Программа" value={result.competitor?.program} />
+                  <Field label="Преподаватели" value={result.competitor?.teachers} />
+                  
+                  {result.competitor?.strengths && result.competitor.strengths.length > 0 && (
+                    <div className="pt-3">
+                      <h4 className="font-medium text-green-600 mb-2 text-sm">Сильные стороны</h4>
+                      <ul className="text-sm space-y-1">
+                        {result.competitor.strengths.map((s, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-green-500">+</span>
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {result.competitor?.weaknesses && result.competitor.weaknesses.length > 0 && (
+                    <div className="pt-3">
+                      <h4 className="font-medium text-red-600 mb-2 text-sm">Слабые стороны</h4>
+                      <ul className="text-sm space-y-1">
+                        {result.competitor.weaknesses.map((w, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-red-500">−</span>
+                            {w}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Comparison Analysis */}
+            {result.comparison && (
+              <Card className="border-0 shadow-xl bg-gradient-to-br from-indigo-50/50 to-purple-50/50">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <Badge className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
+                      VS Сравнение
+                    </Badge>
+                  </div>
+                  <CardTitle>Анализ различий</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Field label="💰 Сравнение цен" value={result.comparison.priceComparison} />
+                  <Field label="⏱️ Сравнение длительности" value={result.comparison.durationComparison} />
+                  <Field label="🖥️ Сравнение платформ" value={result.comparison.platformComparison} />
+                  
+                  <Separator />
+                  
+                  <div>
+                    <h4 className="font-medium text-green-600 mb-2">
+                      🚀 Преимущества конкурента перед ProductLab
+                    </h4>
+                    {result.comparison.strengthsVsProductLab && result.comparison.strengthsVsProductLab.length > 0 ? (
+                      <ul className="text-sm space-y-1">
+                        {result.comparison.strengthsVsProductLab.map((s, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-green-500">+</span>
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-slate-400 text-sm">Не выявлено</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className="font-medium text-amber-600 mb-2">
+                      ⚠️ Недостатки конкурента перед ProductLab
+                    </h4>
+                    {result.comparison.weaknessesVsProductLab && result.comparison.weaknessesVsProductLab.length > 0 ? (
+                      <ul className="text-sm space-y-1">
+                        {result.comparison.weaknessesVsProductLab.map((w, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-amber-500">−</span>
+                            {w}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-slate-400 text-sm">Не выявлено</p>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  <div className="bg-white/70 rounded-xl p-4">
+                    <h4 className="font-medium mb-2">📋 Общий вывод</h4>
+                    <p className="text-sm text-slate-600">{result.comparison.overallVerdict}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         )}
       </main>
     </div>
@@ -552,11 +529,11 @@ export default function CourseAnalyzerPage() {
 }
 
 function Field({ label, value }: { label: string; value?: string }) {
-  if (!value || value === 'Не указано' || value === 'null' || value === 'undefined') return null
+  if (!value || value === 'Не указано' || value === 'null' || value === 'undefined' || value === '') return null
   
   return (
     <div>
-      <span className="text-sm text-slate-500">{label}:</span>
+      <span className="text-xs text-slate-500">{label}:</span>
       <p className="text-sm font-medium text-slate-700">{value}</p>
     </div>
   )

@@ -138,4 +138,64 @@ This scaffold includes a comprehensive set of modern web development tools:
 
 ---
 
+## 🚀 Deploy to Vercel
+
+This project is ready for deployment on Vercel. Follow the instructions below.
+
+### ⚠️ Important: Database Configuration
+
+**SQLite will NOT work on Vercel** due to ephemeral filesystem. You need to migrate to a cloud database:
+
+| Database | Recommended For | Free Tier |
+|----------|----------------|-----------|
+| Vercel Postgres | Easiest integration | ✅ Yes |
+| Supabase | Full-featured backend | ✅ Yes |
+| PlanetScale | MySQL-compatible | ✅ Yes |
+| Neon | Serverless Postgres | ✅ Yes |
+
+### Option 1: Deploy via Vercel CLI
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Login to Vercel
+vercel login
+
+# Deploy to Vercel
+vercel
+
+# Deploy to production
+vercel --prod
+```
+
+### Option 2: Deploy via GitHub Integration
+
+1. Push your code to GitHub
+2. Go to [vercel.com](https://vercel.com) and sign in
+3. Click "Add New Project"
+4. Import your GitHub repository
+5. Configure environment variables (see below)
+6. Click "Deploy"
+
+### Environment Variables
+
+Set these in Vercel Dashboard → Settings → Environment Variables:
+
+```env
+DATABASE_URL=your-cloud-database-url
+# Add other variables as needed
+```
+
+### Build Settings (auto-detected)
+
+| Setting | Value |
+|---------|-------|
+| Framework | Next.js |
+| Build Command | `prisma generate && next build` |
+| Output Directory | `.next` |
+| Install Command | `bun install` |
+
+---
+
 Built with ❤️ for the developer community. Supercharged by [Z.ai](https://chat.z.ai) 🚀
