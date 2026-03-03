@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализатор курсов — Сравнение с Product Lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        indigo: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            200: '#c7d2fe',
+                            300: '#a5b4fc',
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        },
+                        purple: {
+                            50: '#faf5ff',
+                            100: '#f3e8ff',
+                            500: '#a855f7',
+                            600: '#9333ea',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .tab-btn.active {
+            background: linear-gradient(to right, #6366f1, #9333ea);
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .card-shadow {
+            box-shadow: 0 10px 40px -10px rgba(99, 102, 241, 0.15);
+        }
+        .header-gradient {
+            background: linear-gradient(135deg, #6366f1 0%, #9333ea 100%);
+        }
+        .text-gradient {
+            background: linear-gradient(to right, #4f46e5, #9333ea);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .tab-content.active {
+            animation: fadeIn 0.3s ease-out;
+        }
+        .switch {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: #e2e8f0;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .switch.active {
+            background: linear-gradient(to right, #6366f1, #9333ea);
+        }
+        .switch::after {
+            content: '';
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            left: 2px;
+            transition: transform 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .switch.active::after {
+            transform: translateX(20px);
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-purple-50/40">
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-indigo-100/50 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between flex-wrap gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 header-gradient rounded-xl shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/>
+                            <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/>
+                            <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gradient">Анализатор курсов</h1>
+                        <p class="text-sm text-slate-500">Сравнение с Product Lab</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <button onclick="clearForm()" class="px-4 py-2 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition">
+                        Очистить
+                    </button>
+                    <button onclick="exportJSON()" class="px-4 py-2 border border-indigo-200 rounded-lg text-indigo-600 hover:bg-indigo-50 transition">
+                        Экспорт JSON
+                    </button>
+                    <button onclick="saveData()" class="px-4 py-2 header-gradient rounded-lg text-white shadow-lg hover:opacity-90 transition">
+                        Сохранить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Tabs Navigation -->
+    <div class="max-w-7xl mx-auto px-4 py-6">
+        <div class="flex flex-wrap gap-2 bg-white/60 backdrop-blur-sm p-2 rounded-2xl border border-indigo-100/50">
+            <button class="tab-btn active px-4 py-2 rounded-xl text-sm font-medium transition" data-tab="basic">Основное</button>
+            <button class="tab-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition" data-tab="pricing">Тарифы</button>
+            <button class="tab-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition" data-tab="documents">Документы</button>
+            <button class="tab-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition" data-tab="training">Обучение</button>
+            <button class="tab-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition" data-tab="teachers">Преподаватели</button>
+            <button class="tab-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition" data-tab="marketing">Маркетинг</button>
+            <button class="tab-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition" data-tab="additional">Допы</button>
+            <button class="tab-btn px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition" data-tab="conclusions">Выводы</button>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 pb-12">
+        <!-- Основное -->
+        <div id="tab-basic" class="tab-content active space-y-6">
+            <!-- Карточка основной информации -->
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 header-gradient rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Основная информация</h2>
+                            <p class="text-sm text-slate-500">Базовые данные о курсе</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div class="grid md:grid-cols-2 gap-5">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Название курса</label>
+                            <input type="text" id="courseName" placeholder="Например: Product Management Pro" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Дата старта</label>
+                            <input type="date" id="startDate" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 outline-none transition">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Основная информация</label>
+                        <textarea id="basicInfo" rows="4" placeholder="Общее описание курса, его направленность и ключевые особенности..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- УТП и ЦА -->
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">УТП и Целевая аудитория</h2>
+                            <p class="text-sm text-slate-500">Уникальное торговое предложение и портрет клиента</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">УТП (Уникальное торговое предложение)</label>
+                        <textarea id="utp" rows="4" placeholder="Чем курс отличается от конкурентов? Какую уникальную ценность предлагает?" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Целевая аудитория</label>
+                        <textarea id="targetAudience" rows="4" placeholder="Кто целевой клиент? Возраст, профессия, уровень подготовки, боли и потребности..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Стоимость -->
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-teal-500 to-cyan-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Стоимость и длительность</h2>
+                            <p class="text-sm text-slate-500">Информация о цене и продолжительности обучения</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div class="grid md:grid-cols-3 gap-5">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Длительность</label>
+                            <input type="text" id="duration" placeholder="Например: 4 месяца" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-teal-400 focus:ring-2 focus:ring-teal-400/20 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Стоимость в месяц</label>
+                            <input type="text" id="pricePerMonth" placeholder="Например: 15 000 ₽" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-teal-400 focus:ring-2 focus:ring-teal-400/20 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Полная стоимость</label>
+                            <input type="text" id="totalPrice" placeholder="Например: 60 000 ₽" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-teal-400 focus:ring-2 focus:ring-teal-400/20 outline-none transition">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Тарифы -->
+        <div id="tab-pricing" class="tab-content space-y-6">
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Тарифы и платформа</h2>
+                            <p class="text-sm text-slate-500">Информация о тарифных планах и условиях оплаты</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Тарифы</label>
+                        <textarea id="tariffs" rows="4" placeholder="Опишите доступные тарифы: Базовый, Стандарт, Премиум..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Содержание тарифов</label>
+                        <textarea id="tariffContent" rows="5" placeholder="Что входит в каждый тариф? Различия между тарифами..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-5">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Платформа</label>
+                            <select id="platform" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-amber-400 outline-none transition bg-white">
+                                <option value="">Выберите платформу</option>
+                                <option value="own">Собственная платформа</option>
+                                <option value="getcourse">GetCourse</option>
+                                <option value="skillbox">Skillbox</option>
+                                <option value="netology">Нетология</option>
+                                <option value="other">Другое</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Возможность рассрочки</label>
+                            <div class="flex items-center gap-3 pt-3">
+                                <div id="installment" class="switch" onclick="toggleSwitch(this)"></div>
+                                <span id="installmentLabel" class="text-slate-600">Рассрочка недоступна</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Документы -->
+        <div id="tab-documents" class="tab-content space-y-6">
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Документы и лицензии</h2>
+                            <p class="text-sm text-slate-500">Официальные документы и сертификаты</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Лицензия</label>
+                        <textarea id="license" rows="4" placeholder="Есть ли лицензия на образовательную деятельность? Номер, дата выдачи..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Документ об окончании</label>
+                        <textarea id="completionDocument" rows="4" placeholder="Какой документ выдается после окончания? Сертификат, диплом, удостоверение..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Обучение -->
+        <div id="tab-training" class="tab-content space-y-6">
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Программа и процесс обучения</h2>
+                            <p class="text-sm text-slate-500">Детали образовательного процесса</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Формат обучения</label>
+                        <textarea id="training" rows="4" placeholder="Онлайн, офлайн, гибридный формат? Записанные уроки или live-трансляции?" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Программа курса</label>
+                        <textarea id="program" rows="5" placeholder="Основные модули и темы курса. Структура программы..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-5">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Использование AI</label>
+                            <div class="flex items-center gap-3 pt-3">
+                                <div id="hasAI" class="switch" onclick="toggleSwitch(this)"></div>
+                                <span id="hasAILabel" class="text-slate-600">AI не используется</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Кто проверяет ДЗ</label>
+                            <select id="homeworkChecker" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-blue-400 outline-none transition bg-white">
+                                <option value="">Выберите</option>
+                                <option value="teacher">Преподаватель</option>
+                                <option value="curator">Куратор</option>
+                                <option value="auto">Автоматическая проверка</option>
+                                <option value="ai">AI-проверка</option>
+                                <option value="peer">Взаимопроверка студентами</option>
+                                <option value="none">Без проверки</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Как проходят занятия</label>
+                        <textarea id="howClassesWork" rows="4" placeholder="Формат проведения занятий: вебинары, видеоуроки, воркшопы, практика..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Преподаватели -->
+        <div id="tab-teachers" class="tab-content space-y-6">
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-rose-500 to-pink-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Преподавательский состав</h2>
+                            <p class="text-sm text-slate-500">Информация о преподавателях и коммуникации</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Преподаватели</label>
+                        <textarea id="teachers" rows="5" placeholder="Кто преподает? Опыт, регалии, текущая должность преподавателей..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Коммуникация с преподавателями</label>
+                        <textarea id="teacherCommunication" rows="4" placeholder="Как можно связаться с преподавателями? Чат, созвоны, обратная связь..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Маркетинг -->
+        <div id="tab-marketing" class="tab-content space-y-6">
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-fuchsia-500 to-purple-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Маркетинг и продвижение</h2>
+                            <p class="text-sm text-slate-500">Каналы привлечения и партнёрские программы</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Допы и бонусы</label>
+                        <textarea id="bonuses" rows="4" placeholder="Дополнительные бонусы для студентов: стажировка, трудоустройство, митапы..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Партнёрская программа</label>
+                        <textarea id="partner" rows="4" placeholder="Есть ли партнёрская программа? Условия, комиссия..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div class="grid md:grid-cols-2 gap-5">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Реклама</label>
+                            <textarea id="advertising" rows="4" placeholder="Где рекламируется курс?" class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-400/20 outline-none transition resize-none"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-2">Контекстная реклама</label>
+                            <textarea id="contextualAds" rows="4" placeholder="Яндекс.Директ, Google Ads..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-400/20 outline-none transition resize-none"></textarea>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Акции</label>
+                        <textarea id="promotions" rows="4" placeholder="Текущие и прошедшие акции, скидки, спецпредложения..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-fuchsia-400 focus:ring-2 focus:ring-fuchsia-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Дополнительно -->
+        <div id="tab-additional" class="tab-content space-y-6">
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-violet-500 to-purple-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Дополнительные продукты</h2>
+                            <p class="text-sm text-slate-500">Лид-магниты и точки входа</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Дополнительные продукты и лид-магниты</label>
+                        <textarea id="additionalProducts" rows="4" placeholder="Бесплатные вебинары, чек-листы, гайды, мини-курсы..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Точка входа</label>
+                        <textarea id="entryPoint" rows="4" placeholder="Как пользователь попадает на курс? Воронка продаж..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Выводы -->
+        <div id="tab-conclusions" class="tab-content space-y-6">
+            <div class="bg-white/80 backdrop-blur-sm rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-slate-100">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Сравнение с Product Lab</h2>
+                            <p class="text-sm text-slate-500">Анализ сильных и слабых сторон</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 space-y-5">
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium">Сильные стороны</span>
+                        </div>
+                        <textarea id="strengths" rows="5" placeholder="В чём курс превосходит Product Lab? Конкурентные преимущества..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-green-400 focus:ring-2 focus:ring-green-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="px-3 py-1 bg-red-100 text-red-700 rounded-full text-sm font-medium">Слабые стороны</span>
+                        </div>
+                        <textarea id="weaknesses" rows="5" placeholder="В чём курс уступает Product Lab? Недостатки..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-red-400 focus:ring-2 focus:ring-red-400/20 outline-none transition resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Первое впечатление -->
+            <div class="bg-gradient-to-br from-indigo-50/50 to-purple-50/50 rounded-2xl border-0 card-shadow overflow-hidden">
+                <div class="p-6 border-b border-indigo-100/50">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2.5 header-gradient rounded-xl">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-semibold text-slate-800">Первое впечатление</h2>
+                            <p class="text-sm text-slate-500">Незаезженное восприятие при быстром скролле</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <textarea id="firstImpression" rows="5" placeholder="Какое впечатление производит курс при первом знакомстве? Эмоциональная реакция, доверие, интерес..." class="w-full px-4 py-3 border border-slate-200 rounded-xl focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 outline-none transition resize-none bg-white/50"></textarea>
+                </div>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="grid md:grid-cols-4 gap-4 mt-6">
+                <div class="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-indigo-100/50 card-shadow">
+                    <div class="text-sm text-slate-500 mb-1">Цена в месяц</div>
+                    <div id="statPrice" class="text-2xl font-bold text-indigo-600">—</div>
+                </div>
+                <div class="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-purple-100/50 card-shadow">
+                    <div class="text-sm text-slate-500 mb-1">Длительность</div>
+                    <div id="statDuration" class="text-2xl font-bold text-purple-600">—</div>
+                </div>
+                <div class="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-teal-100/50 card-shadow">
+                    <div class="text-sm text-slate-500 mb-1">AI</div>
+                    <div id="statAI" class="text-2xl font-bold text-teal-600">Нет</div>
+                </div>
+                <div class="bg-white/80 backdrop-blur-sm rounded-2xl p-4 border border-amber-100/50 card-shadow">
+                    <div class="text-sm text-slate-500 mb-1">Рассрочка</div>
+                    <div id="statInstallment" class="text-2xl font-bold text-amber-600">Нет</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-indigo-100/50 bg-white/50 backdrop-blur-sm mt-12">
+        <div class="max-w-7xl mx-auto px-4 py-6">
+            <div class="flex items-center justify-between flex-wrap gap-4">
+                <p class="text-sm text-slate-500">Анализатор курсов — Инструмент для сравнения образовательных программ</p>
+                <span class="px-3 py-1 border border-indigo-200 text-indigo-600 rounded-full text-sm">v1.0</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Toast -->
+    <div id="toast" class="toast">
+        <div class="font-medium text-slate-800" id="toastTitle"></div>
+        <div class="text-sm text-slate-500" id="toastDesc"></div>
+    </div>
+
+    <script>
+        // State
+        let data = {
+            installment: false,
+            hasAI: false
+        };
+
+        // Load saved data on start
+        document.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('courseAnalysis');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                data = { ...data, ...parsed };
+                
+                // Fill all inputs
+                Object.keys(parsed).forEach(key => {
+                    const el = document.getElementById(key);
+                    if (el) {
+                        if (el.type === 'checkbox' || key === 'installment' || key === 'hasAI') {
+                            // handled separately
+                        } else {
+                            el.value = parsed[key] || '';
+                        }
+                    }
+                });
+
+                // Update switches
+                if (parsed.installment) {
+                    document.getElementById('installment').classList.add('active');
+                    document.getElementById('installmentLabel').textContent = 'Рассрочка доступна';
+                }
+                if (parsed.hasAI) {
+                    document.getElementById('hasAI').classList.add('active');
+                    document.getElementById('hasAILabel').textContent = 'AI используется в обучении';
+                }
+
+                updateStats();
+            }
+        });
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                btn.classList.add('active');
+                document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Toggle switch
+        function toggleSwitch(el) {
+            el.classList.toggle('active');
+            const id = el.id;
+            data[id] = el.classList.contains('active');
+            
+            if (id === 'installment') {
+                document.getElementById('installmentLabel').textContent = data[id] ? 'Рассрочка доступна' : 'Рассрочка недоступна';
+            } else if (id === 'hasAI') {
+                document.getElementById('hasAILabel').textContent = data[id] ? 'AI используется в обучении' : 'AI не используется';
+            }
+            
+            updateStats();
+        }
+
+        // Update stats
+        function updateStats() {
+            document.getElementById('statPrice').textContent = document.getElementById('pricePerMonth').value || '—';
+            document.getElementById('statDuration').textContent = document.getElementById('duration').value || '—';
+            document.getElementById('statAI').textContent = data.hasAI ? 'Да' : 'Нет';
+            document.getElementById('statInstallment').textContent = data.installment ? 'Да' : 'Нет';
+        }
+
+        // Add input listeners for stats
+        ['pricePerMonth', 'duration'].forEach(id => {
+            document.getElementById(id).addEventListener('input', updateStats);
+        });
+
+        // Save data
+        function saveData() {
+            const fields = [
+                'courseName', 'basicInfo', 'startDate', 'utp', 'targetAudience',
+                'duration', 'pricePerMonth', 'totalPrice', 'tariffs', 'tariffContent',
+                'platform', 'license', 'completionDocument', 'training', 'program',
+                'howClassesWork', 'homeworkChecker', 'teachers', 'teacherCommunication',
+                'bonuses', 'partner', 'advertising', 'contextualAds', 'promotions',
+                'additionalProducts', 'entryPoint', 'strengths', 'weaknesses', 'firstImpression'
+            ];
+
+            fields.forEach(field => {
+                const el = document.getElementById(field);
+                if (el) data[field] = el.value;
+            });
+
+            localStorage.setItem('courseAnalysis', JSON.stringify(data));
+            showToast('Данные сохранены', 'Анализ курса успешно сохранён в локальное хранилище');
+        }
+
+        // Export JSON
+        function exportJSON() {
+            const fields = [
+                'courseName', 'basicInfo', 'startDate', 'utp', 'targetAudience',
+                'duration', 'pricePerMonth', 'totalPrice', 'tariffs', 'tariffContent',
+                'platform', 'license', 'completionDocument', 'training', 'program',
+                'howClassesWork', 'homeworkChecker', 'teachers', 'teacherCommunication',
+                'bonuses', 'partner', 'advertising', 'contextualAds', 'promotions',
+                'additionalProducts', 'entryPoint', 'strengths', 'weaknesses', 'firstImpression'
+            ];
+
+            fields.forEach(field => {
+                const el = document.getElementById(field);
+                if (el) data[field] = el.value;
+            });
+
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `course-analysis-${data.courseName || 'untitled'}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast('Экспорт завершён', 'Файл успешно скачан');
+        }
+
+        // Clear form
+        function clearForm() {
+            const fields = [
+                'courseName', 'basicInfo', 'startDate', 'utp', 'targetAudience',
+                'duration', 'pricePerMonth', 'totalPrice', 'tariffs', 'tariffContent',
+                'platform', 'license', 'completionDocument', 'training', 'program',
+                'howClassesWork', 'homeworkChecker', 'teachers', 'teacherCommunication',
+                'bonuses', 'partner', 'advertising', 'contextualAds', 'promotions',
+                'additionalProducts', 'entryPoint', 'strengths', 'weaknesses', 'firstImpression'
+            ];
+
+            fields.forEach(field => {
+                const el = document.getElementById(field);
+                if (el) el.value = '';
+            });
+
+            data = { installment: false, hasAI: false };
+            document.getElementById('installment').classList.remove('active');
+            document.getElementById('hasAI').classList.remove('active');
+            document.getElementById('installmentLabel').textContent = 'Рассрочка недоступна';
+            document.getElementById('hasAILabel').textContent = 'AI не используется';
+            
+            updateStats();
+            localStorage.removeItem('courseAnalysis');
+            showToast('Форма очищена', 'Все поля были сброшены');
+        }
+
+        // Show toast
+        function showToast(title, desc) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastTitle').textContent = title;
+            document.getElementById('toastDesc').textContent = desc;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+</html>
