@@ -42,34 +42,54 @@ function getDefaultCourseData(url: string): CourseData {
 async function analyzeCourse(url: string): Promise<CourseData> {
   console.log('[analyzeCourse] Starting for:', url);
   
+  const defaultData = getDefaultCourseData(url);
+  
   try {
-    // Dynamic import to avoid issues
     const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    console.log('[analyzeCourse] ZAI imported');
-    
     const zai = await ZAI.create();
-    console.log('[analyzeCourse] ZAI created');
     
-    // Try page reader
+    // Try page_reader first
     let pageContent = '';
     try {
       const pageResult = await zai.functions.invoke('page_reader', { url });
-      console.log('[analyzeCourse] Page reader result:', typeof pageResult);
-      
       if (pageResult && typeof pageResult === 'object') {
         const data = (pageResult as { data?: { html?: string } }).data;
-        if (data?.html) {
+        if (data?.html && data.html.length > 100) {
           pageContent = data.html;
-          console.log('[analyzeCourse] HTML length:', pageContent.length);
+          console.log('[analyzeCourse] Page reader success:', pageContent.length);
         }
       }
     } catch (e) {
-      console.error('[analyzeCourse] Page reader error:', e);
+      console.log('[analyzeCourse] Page reader failed:', e);
+    }
+    
+    // Fallback to web search
+    if (!pageContent || pageContent.length < 100) {
+      console.log('[analyzeCourse] Trying web search...');
+      try {
+        const domain = new URL(url).hostname.replace('www.', '');
+        const path = url.split('/').filter(Boolean).slice(-2).join(' ');
+        
+        const searchResult = await zai.functions.invoke('web_search', {
+          query: `${domain} ${path} курс цена стоимость длительность старт программа`,
+          num: 5
+        });
+        
+        if (searchResult && Array.isArray(searchResult)) {
+          pageContent = searchResult
+            .map((r: {name?: string; snippet?: string; title?: string}) => 
+              `${r.name || r.title || ''}: ${r.snippet || ''}`
+            ).join('\n');
+          console.log('[analyzeCourse] Web search result:', pageContent.length);
+        }
+      } catch (e) {
+        console.log('[analyzeCourse] Web search failed:', e);
+      }
     }
     
     if (!pageContent || pageContent.length < 50) {
-      console.log('[analyzeCourse] No content, returning default');
-      return getDefaultCourseData(url);
+      console.log('[analyzeCourse] No content available');
+      return defaultData;
     }
     
     // Quick regex extraction
@@ -78,31 +98,67 @@ async function analyzeCourse(url: string): Promise<CourseData> {
     const startDateMatch = pageContent.match(/(\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
     
     // AI analysis
-    console.log('[analyzeCourse] Starting AI analysis');
+    console.log('[analyzeCourse] Starting AI analysis, content length:', pageContent.length);
+    
     const completion = await zai.chat.completions.create({
       messages: [
-        { role: 'system', content: 'Извлеки данные курса. Только JSON.' },
-        { role: 'user', content: `URL: ${url}\n\nКОНТЕНТ: ${pageContent.substring(0, 8000)}\n\nJSON: {"courseName":"","basicInfo":"","startDate":"","duration":"","pricePerMonth":"","totalPrice":"","platform":"","installment":false,"program":"","hasAI":false,"teachers":"","strengths":[],"weaknesses":[]}` }
+        { role: 'system', content: 'Ты эксперт по анализу образовательных курсов. Извлеки данные из текста. Отвечай только валидным JSON.' },
+        { role: 'user', content: `Проанализируй информацию о курсе и извлеки данные.
+
+URL: ${url}
+
+ИНФОРМАЦИЯ:
+${pageContent.substring(0, 8000)}
+
+Извлеки и верни JSON:
+{
+  "courseName": "полное название курса",
+  "basicInfo": "краткое описание курса",
+  "startDate": "дата начала (например: 15 марта)",
+  "duration": "длительность (например: 4 месяца)",
+  "pricePerMonth": "цена в месяц (например: 15000 ₽/мес)",
+  "totalPrice": "полная цена (например: 60000 ₽)",
+  "platform": "название платформы",
+  "installment": true или false,
+  "program": "кратко темы/модули курса",
+  "hasAI": true или false,
+  "teachers": "имена преподавателей если есть",
+  "strengths": ["сильная сторона 1", "сильная сторона 2"],
+  "weaknesses": ["слабая сторона 1"]
+}
+
+Если информация не найдена — оставь поле пустым. Важно: верни ТОЛЬКО JSON без markdown.` }
       ],
       temperature: 0.1,
     });
 
     const responseText = completion.choices[0]?.message?.content || '{}';
-    console.log('[analyzeCourse] AI response length:', responseText.length);
+    console.log('[analyzeCourse] AI response:', responseText.substring(0, 200));
     
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : getDefaultCourseData(url);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : defaultData;
     
-    if (priceMatch && !parsed.totalPrice) parsed.totalPrice = priceMatch[1].replace(/\s/g, '') + ' ₽';
-    if (durationMatch && !parsed.duration) parsed.duration = durationMatch[1] + ' месяцев';
-    if (startDateMatch && !parsed.startDate) parsed.startDate = startDateMatch[1];
+    // Override with regex if AI missed
+    if (priceMatch && (!parsed.totalPrice || parsed.totalPrice === '')) {
+      parsed.totalPrice = priceMatch[1].replace(/\s/g, '') + ' ₽';
+    }
+    if (durationMatch && (!parsed.duration || parsed.duration === '')) {
+      parsed.duration = durationMatch[1] + ' месяцев';
+    }
+    if (startDateMatch && (!parsed.startDate || parsed.startDate === '')) {
+      parsed.startDate = startDateMatch[1];
+    }
+    
+    // Ensure platform is set
+    if (!parsed.platform || parsed.platform === '') {
+      parsed.platform = defaultData.platform;
+    }
     
     return parsed;
     
   } catch (e) {
     console.error('[analyzeCourse] Error:', e);
-    const data = getDefaultCourseData(url);
-    return data;
+    return defaultData;
   }
 }
 
@@ -113,12 +169,35 @@ async function compareCourses(competitor: CourseData, productLab: CourseData) {
     
     const completion = await zai.chat.completions.create({
       messages: [
-        { role: 'system', content: 'Сравни курсы. Только JSON.' },
-        { role: 'user', content: `Сравни:
-КОНКУРЕНТ: ${competitor.courseName} | ${competitor.totalPrice} | ${competitor.duration}
-PRODUCTLAB: ${productLab.courseName} | ${productLab.totalPrice} | ${productLab.duration}
+        { role: 'system', content: 'Ты эксперт по сравнению образовательных курсов. Отвечай только валидным JSON.' },
+        { role: 'user', content: `Сравни два курса и дай развёрнутый анализ.
 
-JSON: {"priceComparison":"","durationComparison":"","platformComparison":"","strengthsVsProductLab":[],"weaknessesVsProductLab":[],"overallVerdict":""}` }
+КОНКУРЕНТ: ${competitor.courseName}
+- Цена: ${competitor.totalPrice || 'не указана'}
+- Длительность: ${competitor.duration || 'не указана'}
+- Платформа: ${competitor.platform}
+- AI: ${competitor.hasAI ? 'Да' : 'Нет'}
+- Рассрочка: ${competitor.installment ? 'Да' : 'Нет'}
+- Сильные стороны: ${competitor.strengths?.join(', ') || 'не указаны'}
+- Слабые стороны: ${competitor.weaknesses?.join(', ') || 'не указаны'}
+
+PRODUCTLAB (эталон): ${productLab.courseName}
+- Цена: ${productLab.totalPrice || 'не указана'}
+- Длительность: ${productLab.duration || 'не указана'}
+- Платформа: ${productLab.platform}
+- AI: ${productLab.hasAI ? 'Да' : 'Нет'}
+- Рассрочка: ${productLab.installment ? 'Да' : 'Нет'}
+- Сильные стороны: ${productLab.strengths?.join(', ') || 'не указаны'}
+
+Верни JSON:
+{
+  "priceComparison": "сравнение цен с выводом что выгоднее",
+  "durationComparison": "сравнение длительности",
+  "platformComparison": "сравнение платформ и форматов обучения",
+  "strengthsVsProductLab": ["преимущество 1 конкурента перед ProductLab", "преимущество 2"],
+  "weaknessesVsProductLab": ["недостаток 1 конкурента перед ProductLab", "недостаток 2"],
+  "overallVerdict": "общий вывод и рекомендация"
+}` }
       ],
       temperature: 0.2,
     });
@@ -127,7 +206,7 @@ JSON: {"priceComparison":"","durationComparison":"","platformComparison":"","str
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     return jsonMatch ? JSON.parse(jsonMatch[0]) : {
       priceComparison: '', durationComparison: '', platformComparison: '',
-      strengthsVsProductLab: [], weaknessesVsProductLab: [], overallVerdict: ''
+      strengthsVsProductLab: [], weaknessesVsProductLab: [], overallVerdict: 'Ошибка сравнения'
     };
   } catch {
     return {
@@ -145,33 +224,28 @@ export async function POST(request: NextRequest) {
     try {
       body = await request.json();
     } catch (e) {
-      console.error('[API] JSON parse error:', e);
       return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
     }
     
     const { productLabUrl, competitorUrl, step, productLabData } = body;
-    console.log('[API] Request body:', { step, productLabUrl, competitorUrl });
+    console.log('[API] Request:', { step, productLabUrl, competitorUrl });
 
-    // Step 1: Analyze ProductLab only
     if (step === 1 && productLabUrl) {
       const data = await analyzeCourse(productLabUrl);
       return NextResponse.json({ success: true, step: 1, productLab: data });
     }
 
-    // Step 2: Analyze competitor only
     if (step === 2 && competitorUrl) {
       const data = await analyzeCourse(competitorUrl);
       return NextResponse.json({ success: true, step: 2, competitor: data });
     }
 
-    // Step 3: Compare
     if (step === 3 && productLabData && competitorUrl) {
       const competitorData = await analyzeCourse(competitorUrl);
       const comparison = await compareCourses(competitorData, productLabData);
       return NextResponse.json({ success: true, step: 3, competitor: competitorData, comparison });
     }
 
-    // All-in-one mode
     if (productLabUrl && competitorUrl) {
       const [productLab, competitor] = await Promise.all([
         analyzeCourse(productLabUrl),
@@ -195,7 +269,7 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({ 
     status: 'ok', 
-    message: 'Course Analyzer API is running',
+    message: 'Course Analyzer API',
     timestamp: new Date().toISOString()
   });
 }
