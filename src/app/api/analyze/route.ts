@@ -1,4 +1,3 @@
-import ZAI from 'z-ai-web-dev-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 
 interface CourseData {
@@ -15,17 +14,6 @@ interface CourseData {
   teachers: string;
   strengths: string[];
   weaknesses: string[];
-}
-
-async function fetchPageContent(url: string): Promise<string> {
-  try {
-    const zai = await ZAI.create();
-    const pageResult = await zai.functions.invoke('page_reader', { url }) as { data?: { html?: string } };
-    if (pageResult?.data?.html) return pageResult.data.html;
-  } catch (e) {
-    console.error('[fetchPageContent] Error:', e);
-  }
-  return '';
 }
 
 function getDefaultCourseData(url: string): CourseData {
@@ -54,27 +42,43 @@ function getDefaultCourseData(url: string): CourseData {
 async function analyzeCourse(url: string): Promise<CourseData> {
   console.log('[analyzeCourse] Starting for:', url);
   
-  let pageContent = '';
   try {
-    pageContent = await fetchPageContent(url);
-    console.log('[analyzeCourse] Content length:', pageContent.length);
-  } catch (e) {
-    console.error('[analyzeCourse] Fetch error:', e);
-    return getDefaultCourseData(url);
-  }
-  
-  if (!pageContent || pageContent.length < 50) {
-    console.log('[analyzeCourse] No content, returning default');
-    return getDefaultCourseData(url);
-  }
-  
-  // Quick regex extraction
-  const priceMatch = pageContent.match(/(\d[\d\s]{3,})\s*(?:₽|руб)/i);
-  const durationMatch = pageContent.match(/(\d{1,2})\s*(?:месяц|мес)/i);
-  const startDateMatch = pageContent.match(/(\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
-  
-  try {
+    // Dynamic import to avoid issues
+    const ZAI = (await import('z-ai-web-dev-sdk')).default;
+    console.log('[analyzeCourse] ZAI imported');
+    
     const zai = await ZAI.create();
+    console.log('[analyzeCourse] ZAI created');
+    
+    // Try page reader
+    let pageContent = '';
+    try {
+      const pageResult = await zai.functions.invoke('page_reader', { url });
+      console.log('[analyzeCourse] Page reader result:', typeof pageResult);
+      
+      if (pageResult && typeof pageResult === 'object') {
+        const data = (pageResult as { data?: { html?: string } }).data;
+        if (data?.html) {
+          pageContent = data.html;
+          console.log('[analyzeCourse] HTML length:', pageContent.length);
+        }
+      }
+    } catch (e) {
+      console.error('[analyzeCourse] Page reader error:', e);
+    }
+    
+    if (!pageContent || pageContent.length < 50) {
+      console.log('[analyzeCourse] No content, returning default');
+      return getDefaultCourseData(url);
+    }
+    
+    // Quick regex extraction
+    const priceMatch = pageContent.match(/(\d[\d\s]{3,})\s*(?:₽|руб)/i);
+    const durationMatch = pageContent.match(/(\d{1,2})\s*(?:месяц|мес)/i);
+    const startDateMatch = pageContent.match(/(\d{1,2}\s*(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря))/i);
+    
+    // AI analysis
+    console.log('[analyzeCourse] Starting AI analysis');
     const completion = await zai.chat.completions.create({
       messages: [
         { role: 'system', content: 'Извлеки данные курса. Только JSON.' },
@@ -94,24 +98,25 @@ async function analyzeCourse(url: string): Promise<CourseData> {
     if (startDateMatch && !parsed.startDate) parsed.startDate = startDateMatch[1];
     
     return parsed;
+    
   } catch (e) {
-    console.error('[analyzeCourse] AI error:', e);
+    console.error('[analyzeCourse] Error:', e);
     const data = getDefaultCourseData(url);
-    if (priceMatch) data.totalPrice = priceMatch[1].replace(/\s/g, '') + ' ₽';
-    if (durationMatch) data.duration = durationMatch[1] + ' месяцев';
     return data;
   }
 }
 
 async function compareCourses(competitor: CourseData, productLab: CourseData) {
   try {
+    const ZAI = (await import('z-ai-web-dev-sdk')).default;
     const zai = await ZAI.create();
+    
     const completion = await zai.chat.completions.create({
       messages: [
         { role: 'system', content: 'Сравни курсы. Только JSON.' },
         { role: 'user', content: `Сравни:
-КОНКУРЕНТ: ${competitor.courseName} | ${competitor.totalPrice} | ${competitor.duration} | AI:${competitor.hasAI?'Да':'Нет'}
-PRODUCTLAB: ${productLab.courseName} | ${productLab.totalPrice} | ${productLab.duration} | AI:${productLab.hasAI?'Да':'Нет'}
+КОНКУРЕНТ: ${competitor.courseName} | ${competitor.totalPrice} | ${competitor.duration}
+PRODUCTLAB: ${productLab.courseName} | ${productLab.totalPrice} | ${productLab.duration}
 
 JSON: {"priceComparison":"","durationComparison":"","platformComparison":"","strengthsVsProductLab":[],"weaknessesVsProductLab":[],"overallVerdict":""}` }
       ],
@@ -133,55 +138,64 @@ JSON: {"priceComparison":"","durationComparison":"","platformComparison":"","str
 }
 
 export async function POST(request: NextRequest) {
+  console.log('[API] === New Request ===');
+  
   try {
-    const body = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch (e) {
+      console.error('[API] JSON parse error:', e);
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+    
     const { productLabUrl, competitorUrl, step, productLabData } = body;
-
-    console.log('[API] Request:', { step, productLabUrl, competitorUrl });
+    console.log('[API] Request body:', { step, productLabUrl, competitorUrl });
 
     // Step 1: Analyze ProductLab only
     if (step === 1 && productLabUrl) {
-      console.log('[API] Step 1: Analyzing ProductLab');
       const data = await analyzeCourse(productLabUrl);
       return NextResponse.json({ success: true, step: 1, productLab: data });
     }
 
     // Step 2: Analyze competitor only
     if (step === 2 && competitorUrl) {
-      console.log('[API] Step 2: Analyzing competitor');
       const data = await analyzeCourse(competitorUrl);
       return NextResponse.json({ success: true, step: 2, competitor: data });
     }
 
-    // Step 3: Compare (requires both data)
+    // Step 3: Compare
     if (step === 3 && productLabData && competitorUrl) {
-      console.log('[API] Step 3: Comparing');
       const competitorData = await analyzeCourse(competitorUrl);
       const comparison = await compareCourses(competitorData, productLabData);
       return NextResponse.json({ success: true, step: 3, competitor: competitorData, comparison });
     }
 
-    // Legacy: All-in-one (for backward compatibility)
+    // All-in-one mode
     if (productLabUrl && competitorUrl) {
-      console.log('[API] All-in-one mode');
-      
       const [productLab, competitor] = await Promise.all([
         analyzeCourse(productLabUrl),
         analyzeCourse(competitorUrl)
       ]);
-      
       const comparison = await compareCourses(competitor, productLab);
-      
       return NextResponse.json({ success: true, productLab, competitor, comparison });
     }
 
     return NextResponse.json({ error: 'Неверные параметры' }, { status: 400 });
 
   } catch (error) {
-    console.error('[API] Error:', error);
+    console.error('[API] Fatal error:', error);
     return NextResponse.json({ 
-      error: 'Внутренняя ошибка сервера',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: 'Внутренняя ошибка',
+      details: error instanceof Error ? error.message : 'Unknown'
     }, { status: 500 });
   }
+}
+
+export async function GET() {
+  return NextResponse.json({ 
+    status: 'ok', 
+    message: 'Course Analyzer API is running',
+    timestamp: new Date().toISOString()
+  });
 }
